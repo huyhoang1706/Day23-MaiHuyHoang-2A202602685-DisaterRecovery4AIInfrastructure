@@ -1,0 +1,4 @@
+{"ts": 1791522171.273723, "iso": "2026-10-09T05:02:51", "action": "refused", "region": "a", "mode": "netblock", "reason": "region-b khong phan hoi /healthz -> giet region-a nua la double outage, RTO do duoc se vo nghia"}
+{"ts": 1791522281.1713212, "iso": "2026-10-09T05:04:41", "action": "kill", "region": "a", "mode": "netblock", "backend": "bare", "mock": true, "other_region": "b", "other_alive": true, "forced_both": false, "note": "t_outage_start \u2014 moc 0 cua RTO clock"}
+{"ts": 1791522312.852721, "iso": "2026-10-09T05:05:12", "action": "restore", "region": "a", "method": "SIGCONT", "pid": 19617}
+{"ts": 1791522362.6661065, "iso": "2026-10-09T05:06:02", "action": "kill", "region": "a", "mode": "netblock", "backend": "bare", "mock": true, "other_region": "b", "other_alive": true, "forced_both": false, "note": "t_outage_start \u2014 moc 0 cua RTO clock"}

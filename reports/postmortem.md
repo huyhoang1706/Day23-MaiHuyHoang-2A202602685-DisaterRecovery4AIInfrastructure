@@ -1,39 +1,41 @@
-# Postmortem — DR Drill Lab 23 (TEMPLATE)
+# Postmortem — DR Drill Lab 23
 
-Theo đúng template §4 "Sau Failover: Blameless Postmortem". Blameless: câu hỏi là
-"hệ thống/process nào cho phép chuyện này", không phải "ai làm sai".
+Blameless: drill kiểm tra hệ thống và runbook, không quy lỗi cho cá nhân.
 
-## 1. Timeline (mọi dòng phải có evidence path:line)
+## 1. Timeline
 
 | ISO time | Sự kiện | Evidence |
 |---|---|---|
-| | outage bắt đầu | |
-| | user đầu tiên bị ảnh hưởng | |
-| | health check alert | |
-| | operator confirm cutover | |
-| | resolved (request đầu tiên OK từ region phụ) | |
+| 2026-10-09T05:06:02 | outage Region A bắt đầu | `chaos/chaos-events.jsonl:4` |
+| 2026-10-09T05:06:02 | user đầu tiên bị ảnh hưởng | `reports/drill-2-withdr.jsonl:45` |
+| 2026-10-09T05:06:17 | health check alert A UNHEALTHY | `reports/health-events.jsonl:2` |
+| 2026-10-09T05:06:29 | operator confirm cutover | `reports/runbook-run.jsonl:2` |
+| 2026-10-09T05:06:37 | request đầu tiên OK từ B, resolved | `reports/drill-2-withdr.jsonl:62` |
 
 ## 2. RTO/RPO đo được vs mục tiêu — gap ở bước nào?
 
-- RTO mục tiêu: 300s · đo được: `__s` · gap: `__s`
-- RPO mục tiêu: 300s · đo được: `__s` (`__` doc bị mất) · gap: `__s`
-- **Bước tốn nhiều giây nhất:** `____` — vì sao?
+- RTO mục tiêu 300s; đo được **34.4s**; gap **265.6s dưới mục tiêu** (`reports/measure-drill-2.json:24`).
+- RPO mục tiêu 300s; đo được **2.0s / 1 document**; gap **298.0s dưới mục tiêu** (`reports/failover-events.jsonl:2`).
+- Bước tốn nhiều giây nhất là health-check detection: 14.85s thực tế (floor cấu hình 15s); kế tiếp là operator handoff 11.91s và GPU warm-up 6.24s.
 
 ## 3. Root cause (5 whys)
 
-Không phải "vì tôi chạy chaos script". Câu hỏi: *nếu đây là outage thật, bước nào
-trong runbook của tôi sẽ thất bại?*
+1. User lỗi vì edge vẫn route tới Region A bị netblock.
+2. Edge không đổi ngay vì DNS chỉ đổi sau khi target ready.
+3. Alert cần ba lỗi liên tiếp mỗi 5s để chống flapping.
+4. Failover cần operator confirm vì runbook là semi-automated.
+5. Outage thật có thể làm restore fail nếu thiếu snapshot/model version; do đó runbook log version và abort nếu target không ready.
 
-## 4. Action items (có owner + deadline)
+## 4. Action items
 
-| # | Action | Owner | Deadline | Giảm RTO/RPO bao nhiêu giây |
-|---|---|---|---|---|
-| 1 | | | | |
-| 2 | | | | |
+| # | Action item | Owner | Deadline | Giảm RTO/RPO bao nhiêu giây |
+|---|---|---|---|---:|
+| 1 | On-call alert và 1-click confirm có audit log | SRE | 2026-10-23 | ~10s RTO |
+| 2 | Test interval 3s với false-positive budget | Platform SRE | 2026-10-30 | tối đa ~6s RTO |
+| 3 | Warm standby và kiểm tra manifest replica | ML Platform | 2026-10-30 | ~6s RTO |
 
-## 5. Ba câu hỏi bắt buộc trả lời
+## 5. Ba câu hỏi bắt buộc
 
-1. `interval × threshold` của bạn là bao nhiêu giây? Nó chiếm bao nhiêu % RTO?
-2. Nếu hạ interval xuống 1s, RTO giảm mấy giây — và bạn trả giá gì (§4 flapping)?
-3. Nếu outage kéo dài 6 giờ và region chính mất dữ liệu vĩnh viễn, `docs_lost` của
-   bạn có nghĩa gì với khách hàng?
+1. `interval × threshold = 5 × 3 = 15s`; detection 14.8s, khoảng **43.0%** RTO (`reports/health-events.jsonl:2`, `reports/measure-drill-2.json:24`).
+2. Interval 1s với threshold 3 giảm floor 15s xuống 3s, tối đa **12s**, đổi lại là 5 lần probe và nguy cơ flap cao hơn.
+3. Nếu A mất vĩnh viễn 6 giờ, `docs_lost=1` là một document ingest sau snapshot chưa có ở B; cần xác định và khôi phục từ source of truth.

@@ -30,12 +30,48 @@ URL = {"a": "http://127.0.0.1:8001", "b": "http://127.0.0.1:8002"}
 
 def probe(region: str, timeout: float) -> tuple[bool, str]:
     """TODO: trả về (ready, reason). Timeout PHẢI có — netblock làm request treo mãi."""
-    raise NotImplementedError
+    try:
+        response = httpx.get(f"{URL[region]}/readyz", timeout=timeout)
+        if response.status_code == 200:
+            return True, "ready"
+        try:
+            reasons = response.json().get("reasons", [])
+        except ValueError:
+            reasons = []
+        return False, ";".join(reasons) or f"http_{response.status_code}"
+    except httpx.TimeoutException:
+        return False, "timeout"
+    except httpx.HTTPError as exc:
+        return False, type(exc).__name__
 
 
 def run(interval: float, timeout: float, threshold: int, duration: float, out: pathlib.Path):
     """TODO: vòng lặp poll + phát hiện transition + ghi JSONL."""
-    raise NotImplementedError
+    if interval <= 0 or timeout <= 0 or threshold < 1 or duration < 0:
+        raise ValueError("interval/timeout/duration must be positive and threshold >= 1")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    state = {region: "HEALTHY" for region in URL}
+    failures = {region: 0 for region in URL}
+    end = time.time() + duration
+    with out.open("a") as log:
+        while time.time() < end:
+            started = time.time()
+            for region in URL:
+                ready, reason = probe(region, timeout)
+                failures[region] = 0 if ready else failures[region] + 1
+                next_state = "HEALTHY" if ready else (
+                    "UNHEALTHY" if failures[region] >= threshold else state[region]
+                )
+                if next_state != state[region]:
+                    event = {
+                        "ts": time.time(), "region": region, "event": "state_change",
+                        "to": next_state, "reason": reason, "interval_s": interval,
+                        "threshold": threshold, "consecutive_fails": failures[region],
+                    }
+                    log.write(json.dumps(event) + "\n")
+                    log.flush()
+                    state[region] = next_state
+            time.sleep(max(0.0, interval - (time.time() - started)))
 
 
 if __name__ == "__main__":
